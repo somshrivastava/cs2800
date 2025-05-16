@@ -1,0 +1,218 @@
+#lang lsl
+
+(define STARTBAL 1000)
+(define MAX-TRANSFERS 20)
+
+(define-struct bank-state-v1 (balance num-transfers other-banks))
+(define-contract BS1 (Struct bank-state-v1 [Natural Natural (List String)]))
+
+(define-struct transfer (bal))
+(define-contract Transfer (Struct transfer [Natural]))
+
+(: bank-start-v1 (-> (List String) (Action BS1)))
+(define (bank-start-v1 others)
+  (local [(define sent-bal (random (add1 STARTBAL)))]
+    (action (make-bank-state-v1 (- STARTBAL sent-bal) 0 others)
+            (list
+             (send-packet
+              (list-ref others (random (length others)))
+              (make-transfer sent-bal))))))
+
+(: bank-receive-v1 (-> BS1 (ReceivePacket Transfer) (Action BS1)))
+(define (bank-receive-v1 st pkt)
+  (local [(define others (bank-state-v1-other-banks st))
+          (define recieve-st
+            (make-bank-state-v1
+             (+ (bank-state-v1-balance st) (transfer-bal (receive-packet-msg pkt)))
+             (add1 (bank-state-v1-num-transfers st))
+             others))
+          (define sent-bal (random (add1 (bank-state-v1-balance recieve-st))))
+          (define sent-st
+            (make-bank-state-v1
+             (- (bank-state-v1-balance recieve-st) sent-bal)
+             (bank-state-v1-num-transfers recieve-st)
+             others))]
+    (cond
+      [(< (bank-state-v1-num-transfers recieve-st) MAX-TRANSFERS)
+       (action sent-st
+               (list
+                (send-packet
+                 (list-ref others (random (length others)))
+                 (make-transfer sent-bal))))]
+      [(>= (bank-state-v1-num-transfers recieve-st) MAX-TRANSFERS)
+       (action recieve-st (list))])))
+
+(define (bank-process-v1 nm)
+  (process
+   (name nm)
+   (on-start bank-start-v1)
+   (on-receive bank-receive-v1)))
+
+(define (bank-v1)
+  (local [(define banks (build-list 4 (λ (n) (bank-process-v1 (string-append "bank" (number->string n))))))]
+    (start first banks)))
+
+(define UNTIL-SNAPSHOT 10)
+
+(define-struct bank-state (balance num-transfers other-banks snapshot ignored))
+(define-contract BS (Struct bank-state [Natural Natural (List String) (Maybe Natural) (List String)]))
+
+(define-struct marker ())
+(define-contract Marker (Struct marker []))
+
+(define-contract Message (OneOf Transfer Marker))
+
+(: bank-start (-> (List String) (Action BS)))
+(define (bank-start others)
+  (local [(define sent-bal (random (add1 STARTBAL)))]
+    (action (make-bank-state (- STARTBAL sent-bal) 0 others #f '())
+            (list
+             (send-packet
+              (list-ref others (random (length others)))
+              (make-transfer sent-bal))))))
+
+(: bank-receive (-> BS (ReceivePacket Message) (Action BS)))
+(define (bank-receive st pkt)
+  (local [(define sender (receive-packet-from pkt))
+          (define msg (receive-packet-msg pkt))
+          (define balance (bank-state-balance st))
+          (define num-transfers (bank-state-num-transfers st))
+          (define others (bank-state-other-banks st))
+          (define snapshot (bank-state-snapshot st))
+          (define ignored (bank-state-ignored st))]
+    (cond
+      [(and (marker? msg) (false? snapshot))
+       (action
+        (make-bank-state balance num-transfers others balance (if (member? sender ignored) ignored (cons sender ignored)))
+        (map (λ (b) (send-packet b (make-marker))) others))]
+      [(and (marker? msg) (number? snapshot))
+       (action
+        (make-bank-state balance num-transfers others snapshot (if (member? sender ignored) ignored (cons sender ignored)))
+        (list))]
+      [(and (transfer? msg) (< (add1 num-transfers) MAX-TRANSFERS) (member? sender ignored) (< (add1 num-transfers) UNTIL-SNAPSHOT) (number? snapshot))
+       (let ([send-amt (random (+ balance (transfer-bal msg) 1))])
+         (action
+          (make-bank-state (- (+ (transfer-bal msg) balance) send-amt) (add1 num-transfers) others snapshot ignored)
+          (list (send-packet
+                 (list-ref others (random (length others)))
+                 (make-transfer send-amt)))))]
+      [(and (transfer? msg) (< (add1 num-transfers) MAX-TRANSFERS) (member? sender ignored) (>= (add1 num-transfers) UNTIL-SNAPSHOT) (number? snapshot))
+       (let ([send-amt (random (+ balance (transfer-bal msg) 1))])
+         (action
+          (make-bank-state (- (+ (transfer-bal msg) balance) send-amt) (add1 num-transfers) others snapshot ignored)
+          (list (send-packet
+                 (list-ref others (random (length others)))
+                 (make-transfer send-amt)))))]
+      [(and (transfer? msg) (< (add1 num-transfers) MAX-TRANSFERS) (not (member? sender ignored)) (< (add1 num-transfers) UNTIL-SNAPSHOT) (number? snapshot))
+       (let ([send-amt (random (+ balance (transfer-bal msg) 1))])
+         (action
+          (make-bank-state (- (+ (transfer-bal msg) balance) send-amt) (add1 num-transfers) others (+ (transfer-bal msg) snapshot) ignored)
+          (list (send-packet
+                 (list-ref others (random (length others)))
+                 (make-transfer send-amt)))))]
+      [(and (transfer? msg) (< (add1 num-transfers) MAX-TRANSFERS) (not (member? sender ignored)) (>= (add1 num-transfers) UNTIL-SNAPSHOT) (number? snapshot))
+       (let ([send-amt (random (+ balance (transfer-bal msg) 1))])
+         (action
+          (make-bank-state (- (+ (transfer-bal msg) balance) send-amt) (add1 num-transfers) others (+ (transfer-bal msg) snapshot) ignored)
+          (list (send-packet
+                 (list-ref others (random (length others)))
+                 (make-transfer send-amt)))))]
+      [(and (transfer? msg) (>= (add1 num-transfers) MAX-TRANSFERS) (member? sender ignored) (< (add1 num-transfers) UNTIL-SNAPSHOT) (number? snapshot))
+       (action
+        (make-bank-state (+ (transfer-bal msg) balance) (add1 num-transfers) others snapshot ignored)
+        (list))]
+      [(and (transfer? msg) (>= (add1 num-transfers) MAX-TRANSFERS) (member? sender ignored) (>= (add1 num-transfers) UNTIL-SNAPSHOT) (number? snapshot))
+       (action
+        (make-bank-state (+ (transfer-bal msg) balance) (add1 num-transfers) others snapshot ignored)
+        (list))]
+      [(and (transfer? msg) (>= (add1 num-transfers) MAX-TRANSFERS) (not (member? sender ignored)) (< (add1 num-transfers) UNTIL-SNAPSHOT) (number? snapshot))
+       (action
+        (make-bank-state (+ (transfer-bal msg) balance) (add1 num-transfers) others (+ (transfer-bal msg) snapshot) ignored)
+        (list))]
+      [(and (transfer? msg) (>= (add1 num-transfers) MAX-TRANSFERS) (not (member? sender ignored)) (>= (add1 num-transfers) UNTIL-SNAPSHOT) (number? snapshot))
+       (action
+        (make-bank-state (+ (transfer-bal msg) balance) (add1 num-transfers) others (+ (transfer-bal msg) snapshot) ignored)
+        (list))]
+      [(and (transfer? msg) (< (add1 num-transfers) MAX-TRANSFERS) (member? sender ignored) (< (add1 num-transfers) UNTIL-SNAPSHOT) (false? snapshot))
+       (let ([send-amt (random (+ balance (transfer-bal msg) 1))])
+         (action
+          (make-bank-state (- (+ (transfer-bal msg) balance) send-amt) (add1 num-transfers) others snapshot ignored)
+          (list (send-packet
+                 (list-ref others (random (length others)))
+                 (make-transfer send-amt)))))]
+      [(and (transfer? msg) (< (add1 num-transfers) MAX-TRANSFERS) (member? sender ignored) (>= (add1 num-transfers) UNTIL-SNAPSHOT) (false? snapshot))
+       (let ([send-amt (random (+ balance (transfer-bal msg) 1))])
+         (if (zero? (random 2))
+             (action
+              (make-bank-state (- (+ (transfer-bal msg) balance) send-amt) (add1 num-transfers) others (+ (transfer-bal msg) balance) ignored)
+              (append
+               (map (λ (b) (send-packet b (make-marker))) others)
+               (list (send-packet
+                      (list-ref others (random (length others)))
+                      (make-transfer send-amt)))))
+             (action
+              (make-bank-state (- (+ (transfer-bal msg) balance) send-amt) (add1 num-transfers) others snapshot ignored)
+              (list (send-packet
+                     (list-ref others (random (length others)))
+                     (make-transfer send-amt))))))]
+      [(and (transfer? msg) (< (add1 num-transfers) MAX-TRANSFERS) (not (member? sender ignored)) (< (add1 num-transfers) UNTIL-SNAPSHOT) (false? snapshot))
+       (let ([send-amt (random (+ balance (transfer-bal msg) 1))])
+         (action
+          (make-bank-state (- (+ (transfer-bal msg) balance) send-amt) (add1 num-transfers) others snapshot ignored)
+          (list (send-packet
+                 (list-ref others (random (length others)))
+                 (make-transfer send-amt)))))]
+      [(and (transfer? msg) (< (add1 num-transfers) MAX-TRANSFERS) (not (member? sender ignored)) (>= (add1 num-transfers) UNTIL-SNAPSHOT) (false? snapshot))
+       (let ([send-amt (random (+ balance (transfer-bal msg) 1))])
+         (if (zero? (random 2))
+             (action
+              (make-bank-state (- (+ (transfer-bal msg) balance) send-amt) (add1 num-transfers) others (+ (transfer-bal msg) balance) ignored)
+              (append
+               (map (λ (b) (send-packet b (make-marker))) others)
+               (list (send-packet
+                      (list-ref others (random (length others)))
+                      (make-transfer send-amt)))))
+             (action
+              (make-bank-state (- (+ (transfer-bal msg) balance) send-amt) (add1 num-transfers) others snapshot ignored)
+              (list (send-packet
+                     (list-ref others (random (length others)))
+                     (make-transfer send-amt))))))]
+      [(and (transfer? msg) (>= (add1 num-transfers) MAX-TRANSFERS) (member? sender ignored) (< (add1 num-transfers) UNTIL-SNAPSHOT) (false? snapshot))
+       (action
+        (make-bank-state (+ (transfer-bal msg) balance) (add1 num-transfers) others snapshot ignored)
+        (list))]
+      [(and (transfer? msg) (>= (add1 num-transfers) MAX-TRANSFERS) (member? sender ignored) (>= (add1 num-transfers) UNTIL-SNAPSHOT) (false? snapshot))
+       (if (zero? (random 2))
+           (action
+            (make-bank-state (+ (transfer-bal msg) balance) (add1 num-transfers) others (+ (transfer-bal msg) balance) ignored)
+            (map (λ (b) (send-packet b (make-marker))) others))
+           (action
+            (make-bank-state (+ (transfer-bal msg) balance) (add1 num-transfers) others snapshot ignored)
+            (list)))]
+      [(and (transfer? msg) (>= (add1 num-transfers) MAX-TRANSFERS) (not (member? sender ignored)) (< (add1 num-transfers) UNTIL-SNAPSHOT) (false? snapshot))
+       (action
+        (make-bank-state (+ (transfer-bal msg) balance) (add1 num-transfers) others snapshot ignored)
+        (list))]
+      [(and (transfer? msg) (>= (add1 num-transfers) MAX-TRANSFERS) (not (member? sender ignored)) (>= (add1 num-transfers) UNTIL-SNAPSHOT) (false? snapshot))
+       (if (zero? (random 2))
+           (action
+            (make-bank-state (+ (transfer-bal msg) balance) (add1 num-transfers) others (+ (transfer-bal msg) balance) ignored)
+            (map (λ (b) (send-packet b (make-marker))) others))
+           (action
+            (make-bank-state (+ (transfer-bal msg) balance) (add1 num-transfers) others snapshot ignored)
+            (list)))])))
+
+(define (bank-process nm)
+  (process
+   (name nm)
+   (on-start bank-start)
+   (on-receive bank-receive)))
+
+(define (bank)
+  (local [(define banks (build-list 4 (λ (n) (bank-process (string-append "bank" (number->string n))))))]
+    (start first banks)))
+
+(define (snapshot-correct? lop)
+    (=
+     (* (length lop) STARTBAL)
+     (foldr + 0 (map (λ (proccess) (bank-state-snapshot (second proccess))) lop))))

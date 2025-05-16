@@ -1,0 +1,87 @@
+#lang lsl
+
+;; part p0
+(define-mutable-struct cell (free? value))
+(define-contract Cell (Struct cell [Boolean Any]))
+
+(define-mutable-struct memory (pos cells))
+(define-contract Memory (Struct memory [Natural (List Cell)]))
+
+(define MEMORY
+  (make-memory 0 (build-list 100 (lambda (_) (make-cell #t 0)))))
+
+; helper provided in case you need to know size
+(define (memorysize)
+  (length (memory-cells MEMORY)))
+;; part p0
+
+;; part p0a
+(: with-memory (-> Memory (-> Any) Any))
+(define (with-memory M thnk)
+  ...)
+;; part p0a
+
+;; Problem 1
+
+;; part p1
+(: malloc (-> (Maybe Cell)))
+(define (malloc)
+  ...)
+;; part p1
+
+
+;; Problem 2
+
+;; part p2
+(: free (-> Cell False))
+(define (free c)
+  ...)
+;; part p2
+
+;; Problem 3
+
+;; part p3
+(: defrag (-> False))
+(define (defrag)
+  ...)
+;; part p3
+
+
+;; Problem 4
+
+;; part p4a
+(define (*= c v)
+  (set-cell-value! c v))
+
+(define (deref c) (cell-value c))
+
+(: for-loop (-> Cell Natural (-> Any) False))
+(define (for-loop idx bound body)
+  (if (>= (cell-value idx) bound)
+      #f
+      (begin (body)
+             (set-cell-value! idx (add1 (cell-value idx)))
+             (for-loop idx bound body))))
+;; part p4a
+
+
+;; part p4b
+(: sum (-> Natural (Maybe Natural)))
+(define (sum n)
+  ...)
+;; part p4b
+
+
+;; Problem 5
+;;
+;; Add contracts above, no code down here.
+
+;; Problem 6
+
+;; part p6
+
+(: leak-free? (-> (-> Any) Boolean))
+(define (leak-free? thnk)
+  ...)
+
+;; part p6

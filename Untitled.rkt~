@@ -1,0 +1,8 @@
+#lang lsl
+(define-mutable-struct posn [x y])
+(define a-posn (make-posn 0 0))
+(define (f2 p)
+  (set! p (make-posn 1 0)))
+(f2 a-posn)
+a-posn
+(make-posn 0 0)

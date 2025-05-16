@@ -1,0 +1,261 @@
+#lang lsl
+
+;; Problem 1
+
+(define EMPTY 'empty)
+(define WALL 'wall)
+(define PLAYER 'player)
+(define EXIT 'exit)
+
+(define-contract Cell (OneOf (Constant EMPTY)
+                             (Constant WALL)
+                             (Constant PLAYER)
+                             (Constant EXIT)))
+
+(define (random-choice lst)
+  (list-ref lst (random (length lst))))
+
+(define (random-maze dimension)
+  (local (
+          (define size (* dimension dimension))
+          (define positions (map (lambda (i) (make-posn (modulo i dimension) (quotient i dimension)))
+                         (range size)))
+          (define player-pos (list-ref positions (random size)))
+          (define (generate-exit-pos)
+            (let ([p (list-ref positions (random size))])
+              (if (equal? p player-pos) (generate-exit-pos) p)))
+          (define exit-pos (generate-exit-pos))
+          )
+    (map (lambda (pos)
+           (cond
+             [(equal? pos player-pos) (make-at PLAYER pos)]
+             [(equal? pos exit-pos) (make-at EXIT pos)]
+             [else (make-at (random-choice (list EMPTY WALL)) pos)]))
+         positions)))
+
+(check-expect (length (random-maze 3)) 9)
+(check-expect (length (random-maze 5)) 25)
+
+;; Problem 2
+
+(define-struct posn (x y))
+(define-struct at (c pos))
+
+(define-contract (At X Y) (Struct at [X Y]))
+(define-contract Posn (Struct posn [Natural Natural]))
+
+(define-contract Maze (List (At Cell Posn)))
+
+(define (count-cell-type maze cell-type)
+  (length (filter (lambda (at-cell) (equal? (at-c at-cell) cell-type)) maze)))
+
+(: single-player-exit? (-> Maze Boolean))
+(define (single-player-exit? maze)
+  (and (= (count-cell-type maze PLAYER) 1)
+       (= (count-cell-type maze EXIT) 1)))
+(check-contract single-player-exit?)
+
+(define (random-maze-2 dimension)
+  (let ([m (random-maze dimension)])
+    (if (single-player-exit? m)
+        m
+        (random-maze-2 dimension))))
+
+(check-expect (length (random-maze-2 3)) 9)
+(check-expect (length (random-maze-2 5)) 25)
+(check-expect (single-player-exit? (random-maze-2 5)) #t)
+(check-expect (single-player-exit? (random-maze-2 10)) #t)
+
+
+ (define-contract SExp (OneOf Symbol 
+                              Integer 
+                              Boolean 
+                              String 
+                              (List SExp)))
+
+(: maze->s-exp (-> Maze SExp))
+(define (maze->s-exp maze)
+  (map (lambda (at-cell)
+         (list (at-c at-cell)
+               (posn-x (at-pos at-cell))
+               (posn-y (at-pos at-cell))))
+       maze))
+
+(: s-exp->maze (-> SExp Maze))
+(define (s-exp->maze s-exp)
+  (map (lambda (cell-info)
+         (make-at (first cell-info) (make-posn (second cell-info) (third cell-info))))
+       s-exp))
+
+(define sample-maze
+  (list (make-at PLAYER (make-posn 0 0))
+        (make-at EXIT (make-posn 2 2))
+        (make-at WALL (make-posn 1 1))
+        (make-at EMPTY (make-posn 1 2))))
+
+(define sample-maze-sexp
+  '((player 0 0)
+    (exit 2 2)
+    (wall 1 1)
+    (empty 1 2)))
+
+(check-expect (maze->s-exp sample-maze) sample-maze-sexp)
+(check-expect (s-exp->maze sample-maze-sexp) sample-maze)
+
+;; Problem 3
+
+(define-struct invalid-sexp (sexp))
+
+(define (sexp->cell s)
+  (cond
+    [(equal? s 'X) WALL]
+    [(equal? s '_) EMPTY]
+    [(equal? s 'P) PLAYER]
+    [(equal? s 'E) EXIT]
+    [else (raise (make-invalid-sexp s))]))
+
+(: cell->sexp (-> Cell SExp))
+(define (cell->sexp c)
+  (cond
+    [(equal? c WALL) 'X]
+    [(equal? c EMPTY) '_]
+    [(equal? c PLAYER) 'P]
+    [(equal? c EXIT) 'E]))
+(check-contract cell->sexp)
+
+;; Valid conversions
+(check-expect (sexp->cell 'X) WALL)
+(check-expect (sexp->cell 'P) PLAYER)
+(check-expect (sexp->cell '_) EMPTY)
+(check-expect (sexp->cell 'E) EXIT)
+
+(check-expect (cell->sexp WALL) 'X)
+(check-expect (cell->sexp PLAYER) 'P)
+(check-expect (cell->sexp EMPTY) '_)
+(check-expect (cell->sexp EXIT) 'E)
+
+;; Problem 4
+
+(: cell-roundtrip-prop (-> Cell Boolean))
+(define (cell-roundtrip-prop c)
+  (equal? c (sexp->cell (cell->sexp c))))
+
+(check-contract cell-roundtrip-prop)
+
+;; Problem 5
+
+(: maze->sexp (-> Maze SExp))
+(define (maze->sexp maze)
+  (if (null? maze)
+      '()  ;; Return an empty list if the maze is empty
+      (let* ([max-x (apply max (map (lambda (at-cell) (posn-x (at-pos at-cell))) maze))]
+             [max-y (apply max (map (lambda (at-cell) (posn-y (at-pos at-cell))) maze))])
+        (build-list
+          (+ max-y 1) ;; Outer list for rows (Y-coordinates)
+          (lambda (y)
+            (build-list
+              (+ max-x 1) ;; Inner list for columns (X-coordinates)
+              (lambda (x)
+                (cell->sexp
+                  (let ([found (filter
+                                 (lambda (at-cell)
+                                   (and (= (posn-x (at-pos at-cell)) x)
+                                        (= (posn-y (at-pos at-cell)) y)))
+                                 maze)])
+                    (if (null? found) WALL (at-c (first found))))))))))))
+(check-contract maze->sexp)
+
+(: sexp->maze (-> SExp Maze))
+(define (sexp->maze s-exp)
+  (let ([y-values (range (length s-exp))]) ;; Generate row indices (y-coordinates)
+    (apply append
+      (map (lambda (y)
+             (let ([row (list-ref s-exp y)]
+                   [x-values (range (length (list-ref s-exp y)))]) ;; Generate column indices (x-coordinates)
+               (map (lambda (x)
+                      (make-at (sexp->cell (list-ref row x)) (make-posn x y)))
+                    x-values)))
+           y-values))))
+
+;; Problem 6
+
+(: maze-roundtrip-prop (-> Maze Boolean))
+(define (maze-roundtrip-prop maze)
+  (equal? maze (sexp->maze (maze->sexp maze))))
+
+;; Problem 7
+
+(define (find-posn maze cell-type)
+  (let ([found (filter (lambda (at-cell) (equal? (at-c at-cell) cell-type)) maze)])
+    (if (null? found) #f (at-pos (first found))))) ;; Return the first found position
+
+(define (get-neighbors pos)
+  (list
+    (make-posn (posn-x pos) (- (posn-y pos) 1)) ;; Up
+    (make-posn (posn-x pos) (+ (posn-y pos) 1)) ;; Down
+    (make-posn (- (posn-x pos) 1) (posn-y pos)) ;; Left
+    (make-posn (+ (posn-x pos) 1) (posn-y pos)))) ;; Right
+
+(define (is-wall? maze pos)
+  (let ([found (filter (lambda (at-cell) (equal? (at-pos at-cell) pos)) maze)])
+    (if (null? found) #t (equal? (at-c (first found)) WALL)))) ;; Default to wall if missing
+
+(: path-exists? (-> Maze Boolean))
+(define (path-exists? maze)
+  (let ([player-pos (find-posn maze PLAYER)]
+        [exit-pos (find-posn maze EXIT)])
+    (if (and (posn? player-pos) (posn? exit-pos)) ;; Ensure both exist
+        (dfs maze '() player-pos exit-pos) ;; Start DFS
+        #f))) ;; If player or exit is missing, return #f
+
+(: dfs (-> Maze (List Posn) Posn Posn Boolean))
+(define (dfs maze visited pos exit-pos)
+  (cond
+    [(member? pos visited) #f] ;; Already visited this position
+    [(is-wall? maze pos) #f]  ;; Hit a wall
+    [(equal? pos exit-pos) #t] ;; Reached the exit
+    [else
+      (ormap (lambda (neighbor)
+               (dfs maze (cons pos visited) neighbor))
+             (get-neighbors pos))])) ;; Try all neighbors
+
+(: random-maze-3 (-> Natural Maze))
+(define (random-maze-3 dimension)
+  (let ([m (random-maze-2 dimension)])
+    (if (path-exists? m)
+        m
+        (random-maze-3 dimension)))) ;; Regenerate if no valid path exists
+
+
+;; Problem 8
+
+(: path-length? (-> Maze (Maybe Natural)))
+(define (path-length? maze)
+  (let ([player-pos (find-posn maze PLAYER)]
+        [exit-pos (find-posn maze EXIT)])
+    (if (and (posn? player-pos) (posn? exit-pos))
+        (dfs-length maze '() player-pos exit-pos 0) ;; Start DFS with initial length 0
+        #f))) ;; If player or exit is missing, return #f
+
+(: dfs-length (-> Maze (List Posn) Posn Posn Natural (Maybe Natural)))
+(define (dfs-length maze visited pos exit-pos path-length)
+  (cond
+    [(member? pos visited) #f] ;; Already visited this position
+    [(is-wall? maze pos) #f]  ;; Hit a wall
+    [(equal? pos exit-pos) path-length] ;; Reached the exit, return path length
+    [else
+      (let ([path-lengths
+              (filter number?
+                      (map (lambda (neighbor)
+                             (dfs-length maze (cons pos visited) neighbor exit-pos (+ path-length 1)))
+                           (get-neighbors pos)))])
+        (if (null? path-lengths)
+            #f  ;; No valid paths found
+            (apply min path-lengths)))])) ;; Return the shortest path length found
+
+(: random-maze-4 (-> Natural Maze))
+(define (random-maze-4 dimension)
+  (let ([m (random-maze-3 dimension)])
+    (if (and (path-length? m) (>= (path-length? m) dimension))
+        m
+        (random-maze-4 dimension)))) ;; Regenerate if path is too short

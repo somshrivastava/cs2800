@@ -1,0 +1,9 @@
+#lang lsl
+(define Q1 (make-container 10))
+(define (mk-fn4 Z)
+  (lambda (x)
+    (local [(define P (make-container (container-val Z)))]
+      (+ x (container-val P)))))
+(define fn4 (mk-fn4 Q1))
+(set-container-val! Q1 20)
+(fn4 0)

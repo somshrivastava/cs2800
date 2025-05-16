@@ -1,0 +1,33 @@
+#lang lsl
+
+;; Problem 1
+
+(define (gcd-prop ...) ...)
+
+(define (gcd ...) ...)
+
+;; Problem 2
+
+(define (find-majority-prop ...) ...)
+
+(define (find-majority ...) ...)
+
+;; Problem 3
+
+(define (exclusive-range? ...) ...)
+
+(define (exclusive-range?-prop ...) ...)
+
+;; Problem 4
+
+(define-contract Odd ...)
+
+(define (double-plus1 ...) ...)
+
+;; Problem 5
+
+(define (divisible-by-3-or-5? ...) ...)
+
+(define-contract Divis3or5 ...)
+
+(define (divide-3-or-5 ...) ...)

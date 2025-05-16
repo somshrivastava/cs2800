@@ -1,0 +1,19 @@
+#lang racket
+
+(require lsl/performance)
+
+;; Problem 1
+
+;; part p1a
+(define (list-reverse l)
+  (cond [(empty? l) empty]
+        [(cons? l) (append (list-reverse (rest l)) (list (first l)))]))
+;; part p1a
+
+;; Problem 2
+
+;; part p2a
+(define (fib n)
+  (cond [(<= n 1) 1]
+        [else (+ (fib (- n 1)) (fib (- n 2)))]))
+;; part p2a

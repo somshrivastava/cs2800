@@ -1,0 +1,27 @@
+#lang lsl
+
+;; Problem 1
+
+;; Problem 2
+
+;; Formula 1: (P ∧ Q) ∨ ¬R ∨ (Q ∧ ¬R)
+
+(define (p1 P Q R)
+  (or (and P Q)
+      (not R)
+      (and Q (not R))))
+
+(check-expect (p1 #t #t #t) #t)
+(check-expect (p1 #t #f #t) #f)
+(check-expect (p1 #t #f #f) #t)
+(check-expect (p1 #f #t #t) #f)
+(check-expect (p1 #f #f #t) #f)
+(check-expect (p1 #f #f #f) #t)
+(check-expect (p1 #t #t #f) #t)
+(check-expect (p1 #t #f #f) #t)
+
+;; Formula 2: ¬(P ∧ Q ∧ R) ∨ (Q ∧ ¬P )
+
+(define (p2 P Q R)
+  (or (not (and P Q R))
+      (and Q (not P))))

@@ -1,0 +1,19 @@
+#lang lsl
+
+;; Problem 1
+
+(define (duplicate-element-prop ...) ...)
+
+(define (duplicate-element ...) ...)
+
+;; Problem 2
+
+(define (common-element-prop ...) ...)
+
+(define (common-element ...) ...)
+
+;; Problem 3
+
+(define (pair-with-sum-prop ...) ...)
+
+(define (pair-with-sum ...) ...)
